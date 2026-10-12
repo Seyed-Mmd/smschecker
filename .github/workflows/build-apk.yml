@@ -1,0 +1,55 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:        # اجرای دستی از تب Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # اگر فایل zip پروژه در مخزن آپلود شده باشد، خودکار باز می‌شود (لازم نیست پوشه‌ها را جدا آپلود کنی)
+      - name: Unzip project (if uploaded as zip)
+        run: |
+          z=$(ls ./*.zip 2>/dev/null | head -1 || true)
+          if [ -n "$z" ]; then mkdir -p _proj && unzip -q "$z" -d _proj; fi
+
+      - name: Find Android project
+        id: p
+        run: |
+          root=.; [ -d _proj ] && root=_proj
+          f=$(find "$root" -name settings.gradle.kts -not -path "*/node_modules/*" | head -1)
+          [ -n "$f" ] || { echo "settings.gradle.kts not found"; exit 1; }
+          echo "dir=$(dirname "$f")" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: android-actions/setup-android@v3
+
+      # پروژه Gradle Wrapper ندارد، پس خود Gradle نصب می‌شود (AGP 8.5 به Gradle 8.7+ نیاز دارد)
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: ${{ steps.p.outputs.dir }}
+        run: gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Collect APK and logo
+        run: |
+          d="${{ steps.p.outputs.dir }}"
+          mkdir -p out
+          cp "$d/app/build/outputs/apk/debug/app-debug.apk" out/JibCheck.apk
+          cp "$d/app/src/main/res/drawable-nodpi/ic_logo.png" out/logo.png
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JibCheck-apk        # از تب Actions به‌صورت فایل zip دانلود می‌شود
+          path: out/
+          if-no-files-found: error
